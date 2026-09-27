@@ -129,3 +129,11 @@ Vercel builds with `npm run build:vercel` and publishes `dist`. Its `/api/*` rew
 Render requires Node 24+, `npm ci`, `npm start`, `HOST=0.0.0.0`, `NODE_ENV=production`, `COOKIE_SECURE=true`, `APP_ORIGIN=https://still-chatapp.vercel.app`, and `SERVE_FRONTEND=false`. Let Render supply PORT. For durable storage, attach a persistent disk at `/var/data` and use `DATABASE_PATH=/var/data/still.sqlite` and `UPLOAD_DIR=/var/data/uploads`. The existing free service can run with `./data/still.sqlite` and `./data/uploads` only as an ephemeral demo: accounts, messages and files can disappear on restart/redeploy. The included paid blueprint is an optional durable deployment configuration, not a record of purchased resources.
 
 To change domains, run `npm run configure:hosting -- --backend https://ACTUAL-RENDER-DOMAIN --frontend https://ACTUAL-VERCEL-DOMAIN`, then update Render APP_ORIGIN and redeploy both services. `deployment/urls.json` records the durable configuration. Keep one backend instance while using local SQLite and in-memory socket tickets. Provision TURN for calls across restrictive networks; the default STUN-only configuration cannot guarantee every connection.
+
+## Voice notes
+
+Choose **Voice note** in a chat, allow microphone access, record up to five minutes, then stop to preview. Send or discard the recording. Notes use authenticated audio playback with seeking; recordings and uploads share the existing 10 MB per-file and 100 MB per-account limits. Recording requires HTTPS (or localhost) and a browser supporting MediaRecorder with WebM/Opus, MP4, or Ogg/Opus. The browser selects a supported format; recipient playback depends on that format's browser support. Failed uploads retain the preview for retry. Switching chats discards an unsent recording and releases the microphone.
+
+Signup requires matching password and confirmation fields; confirmation is checked locally and is not sent to the server.
+
+For a synthetic-audio browser check, run the development frontend and open `/test/voice-recorder.html`. This test substitutes generated audio for microphone input and checks the recorded file can be decoded.

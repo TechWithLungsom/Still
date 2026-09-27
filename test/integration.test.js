@@ -389,6 +389,23 @@ test("Still end-to-end API and real-time integration", async (t) => {
         );
       },
     );
+    await t.test("voice notes preserve audio type and enforce access during ranged playback", async () => {
+      const form = new FormData();
+      form.append("file", new Blob([new Uint8Array([26,69,223,163,0,0,0,0])], { type: "audio/webm" }), "voice.webm");
+      const response = await fetch(`${base}/api/chats/${chatId}/files`, { method: "POST", headers: { Origin: origin, Cookie: alice.cookie }, body: form });
+      assert.equal(response.status, 201);
+      const { attachment } = await response.json();
+      assert.equal(attachment.mime, "audio/webm");
+      const url = `${base}/api/files/${attachment.id}?play=1`;
+      assert.equal((await fetch(url, { headers: { Cookie: bob.cookie } })).status, 404);
+      await emit(a, "message:send", { chatId, clientId: randomUUID(), kind: "file", body: "", attachmentId: attachment.id });
+      const playback = await fetch(url, { headers: { Cookie: bob.cookie, Range: "bytes=0-3" } });
+      assert.equal(playback.status, 206);
+      assert.match(playback.headers.get("content-type"), /audio\/webm/);
+      assert.equal((await playback.arrayBuffer()).byteLength, 4);
+      assert.equal((await fetch(url, { headers: { Cookie: outsider.cookie } })).status, 403);
+      assert.equal((await fetch(url)).status, 401);
+    });
     await t.test(
       "file sharing enforces membership and hides unshared files",
       async () => {
@@ -481,7 +498,7 @@ test("Still end-to-end API and real-time integration", async (t) => {
           await request(`/chats/${chatId}/messages`, { cookie: alice.cookie })
         ).data.messages;
         assert.equal(messages[0].id, first.id);
-        assert.equal(messages.length, 5);
+        assert.equal(messages.length, 6);
         assert.equal(
           (await request(`/chats/${chatId}/state`, { cookie: alice.cookie }))
             .data.votes[0].messageId,

@@ -102,6 +102,7 @@ export function createApplication(options = {}) {
           scriptSrc: ["'self'"],
           styleSrc: ["'self'"],
           imgSrc: ["'self'", "data:"],
+          mediaSrc: ["'self'", "blob:"],
           connectSrc: ["'self'"],
           objectSrc: ["'none'"],
           upgradeInsecureRequests: production ? [] : null,
@@ -192,7 +193,7 @@ export function createApplication(options = {}) {
     if (!row) return null;
     const attachment = row.attachment_id
       ? db
-          .prepare("SELECT id,filename,size FROM attachments WHERE id=?")
+          .prepare("SELECT id,filename,size,mime FROM attachments WHERE id=?")
           .get(row.attachment_id)
       : null;
     return {
@@ -475,6 +476,9 @@ export function createApplication(options = {}) {
         req.file.originalname
           .replace(/[\x00-\x1f\x7f/\\]/g, "_")
           .slice(0, 180) || "attachment";
+      const allowedAudio = new Set(["audio/webm", "audio/mp4", "audio/ogg"]);
+      const submittedMime = req.file.mimetype.split(";")[0].toLowerCase();
+      const mime = allowedAudio.has(submittedMime) ? submittedMime : "application/octet-stream";
       try {
         transaction(db, () => {
           const used = db
@@ -489,7 +493,7 @@ export function createApplication(options = {}) {
             req.params.chatId,
             req.user.id,
             filename,
-            "application/octet-stream",
+            mime,
             req.file.size,
             Date.now(),
           );
@@ -499,7 +503,7 @@ export function createApplication(options = {}) {
         throw error;
       }
       res.status(201).json({
-        attachment: { id: req.file.filename, filename, size: req.file.size },
+        attachment: { id: req.file.filename, filename, size: req.file.size, mime },
       });
     },
   );
@@ -514,6 +518,10 @@ export function createApplication(options = {}) {
       !db.prepare("SELECT id FROM messages WHERE attachment_id=?").get(file.id)
     ) {
       throw new HttpError(404, "File not found.");
+    }
+    if (req.query.play === "1" && ["audio/webm", "audio/mp4", "audio/ogg"].includes(file.mime)) {
+      res.type(file.mime);
+      return res.sendFile(resolve(uploadDir, file.id));
     }
     res.type("application/octet-stream");
     res.download(resolve(uploadDir, file.id), file.filename);

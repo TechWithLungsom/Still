@@ -31,6 +31,7 @@ import { clearLocalUser } from "./storage";
 import { useMessenger } from "./useMessenger";
 import "./styles.css";
 import { useCalls } from "./useCalls";
+import { VoiceRecorder } from "./VoiceRecorder";
 import { CallPanel } from "./CallPanel";
 
 const MODES = {
@@ -108,6 +109,8 @@ function Auth({ onLogin }) {
     setBusy(true);
     const form = Object.fromEntries(new FormData(event.currentTarget));
     try {
+      if (register && form.password !== form.confirmPassword) throw new Error("Passwords do not match.");
+      delete form.confirmPassword;
       const data = await api(`/auth/${register ? "register" : "login"}`, {
         method: "POST",
         body: JSON.stringify(form),
@@ -192,6 +195,7 @@ function Auth({ onLogin }) {
               placeholder="At least 12 characters"
             />
           </label>
+          {register && <label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required placeholder="Re-enter your password" /></label>}
           {error && (
             <p className="form-error" role="alert">
               {error}
@@ -443,6 +447,7 @@ function Message({ message, user, chat, state, messenger }) {
             </div>
           )}
           {message.body && <p>{message.body}</p>}
+          {message.attachment?.mime?.startsWith("audio/") && <audio className="voice-player" controls preload="none" src={`/api/files/${message.attachment.id}?play=1`} aria-label="Voice note" />}
           {message.attachment && (
             <a
               className="file-card"
@@ -607,6 +612,9 @@ function Conversation({
       messenger.setError("Choose a file smaller than 10 MB.");
       return;
     }
+    try { await uploadFile(selected); } catch (error) { messenger.setError(error.message); }
+  }
+  async function uploadFile(selected) {
     setUploading(true);
     try {
       const data = new FormData();
@@ -618,8 +626,6 @@ function Conversation({
       await messenger.send("", "file", result.attachment);
       setAtBottom(true);
       setTab("conversation");
-    } catch (error) {
-      messenger.setError(error.message);
     } finally {
       setUploading(false);
     }
@@ -758,6 +764,7 @@ function Conversation({
         </button>
       )}
       <div className="composer-wrap">
+        <VoiceRecorder key={chat.id} disabled={uploading || !messenger.connected || Boolean(messenger.calls.call)} onSend={uploadFile} onError={messenger.setError} />
         <div className="typing-line" aria-live="polite">
           {chat.mode !== "focus" && typers.length
             ? `${typers.join(", ")} ${typers.length === 1 ? "is" : "are"} typing…`
