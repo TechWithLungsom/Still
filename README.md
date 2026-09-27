@@ -118,3 +118,14 @@ RTC_ICE_SERVERS is a JSON array of WebRTC ICE server configurations, returned on
 The call integration tests cover authenticated configuration, nonmember rejection, ringing, busy handling, multi-device answer arbitration, SDP/ICE authorization, hang-up, decline, disconnect, and offline recipients. They test signaling, not physical microphone/camera hardware. For a browser transport test, run the development server and open `/test/webrtc.html`; Run transport check uses generated media (no camera/microphone capture), verifies received audio bytes and decoded video frames, then tests mute and video-track replacement. Stop verifies track and peer cleanup. Device permissions and cross-network TURN connectivity still need testing on your target devices and deployed relay.
 
 The generated-media browser check passed with received audio bytes and decoded video frames, mute/unmute, video track replacement, and cleanup. Incoming-call display and decline were also checked in the running application. Physical camera/microphone capture and deployed TURN routing have not been verified.
+
+## Vercel frontend and Render backend
+
+Configured frontend: https://still-chatapp.vercel.app
+Configured backend: https://still-a071.onrender.com
+
+Vercel builds with `npm run build:vercel` and publishes `dist`. Its `/api/*` rewrite forwards HTTP requests to Render without caching private responses. The frontend derives its public WebSocket URL from `vercel.json`; no secrets belong in Vite variables. Authenticated HTTP requests obtain a 30-second, single-use ticket to connect directly to Render. Cookies remain on the frontend domain.
+
+Render requires Node 24+, `npm ci`, `npm start`, `HOST=0.0.0.0`, `NODE_ENV=production`, `COOKIE_SECURE=true`, `APP_ORIGIN=https://still-chatapp.vercel.app`, and `SERVE_FRONTEND=false`. Let Render supply PORT. For durable storage, attach a persistent disk at `/var/data` and use `DATABASE_PATH=/var/data/still.sqlite` and `UPLOAD_DIR=/var/data/uploads`. The existing free service can run with `./data/still.sqlite` and `./data/uploads` only as an ephemeral demo: accounts, messages and files can disappear on restart/redeploy. The included paid blueprint is an optional durable deployment configuration, not a record of purchased resources.
+
+To change domains, run `npm run configure:hosting -- --backend https://ACTUAL-RENDER-DOMAIN --frontend https://ACTUAL-VERCEL-DOMAIN`, then update Render APP_ORIGIN and redeploy both services. `deployment/urls.json` records the durable configuration. Keep one backend instance while using local SQLite and in-memory socket tickets. Provision TURN for calls across restrictive networks; the default STUN-only configuration cannot guarantee every connection.

@@ -1,10 +1,7 @@
-node_modules/
-dist/
-data/
+node_modules
 .env
-*.log
-
 .env.*
 !.env.example
-.vercel/
+data
 deployment/*.env
+.git

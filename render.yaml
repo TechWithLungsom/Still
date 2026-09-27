@@ -1,0 +1,32 @@
+# Requires an authorized paid web service for durable SQLite/file storage.
+# Review the plan and disk cost before applying this blueprint.
+services:
+  - type: web
+    name: still-api
+    runtime: node
+    plan: starter
+    numInstances: 1
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: APP_ORIGIN
+        sync: false
+      - key: DATABASE_PATH
+        value: /var/data/still.sqlite
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: SERVE_FRONTEND
+        value: "false"
+    disk:
+      name: still-data
+      mountPath: /var/data
+      sizeGB: 1

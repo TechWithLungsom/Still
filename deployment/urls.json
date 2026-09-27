@@ -1,0 +1,16 @@
+{
+  "frontendOrigin": "https://still-chatapp.vercel.app",
+  "backendOrigin": "https://still-a071.onrender.com",
+  "vercelEnvironment": {
+    "VITE_REALTIME_ORIGIN": "https://still-a071.onrender.com"
+  },
+  "renderEnvironment": {
+    "NODE_ENV": "production",
+    "HOST": "0.0.0.0",
+    "COOKIE_SECURE": "true",
+    "APP_ORIGIN": "https://still-chatapp.vercel.app",
+    "DATABASE_PATH": "/var/data/still.sqlite",
+    "UPLOAD_DIR": "/var/data/uploads",
+    "SERVE_FRONTEND": "false"
+  }
+}

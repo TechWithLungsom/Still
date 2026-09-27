@@ -10,7 +10,9 @@
     "dev": "concurrently -k -n api,web \"node --env-file-if-exists=.env server/index.js\" \"vite --host 127.0.0.1\"",
     "build": "vite build",
     "start": "node --env-file-if-exists=.env server/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "configure:hosting": "node scripts/configure-hosting.js",
+    "build:vercel": "node scripts/build-vercel.js"
   },
   "dependencies": {
     "cookie": "^1.0.2",

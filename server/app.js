@@ -122,6 +122,8 @@ export function createApplication(options = {}) {
   );
   app.use("/api", (req, res, next) => {
     res.set("Cache-Control", "no-store");
+    res.set("CDN-Cache-Control", "no-store");
+    res.set("Vercel-CDN-Cache-Control", "no-store");
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       !allowedOrigins.has(req.headers.origin)
@@ -132,15 +134,19 @@ export function createApplication(options = {}) {
   });
   app.use(express.json({ limit: "32kb" }));
 
-  function session(cookieHeader) {
-    const token = parse(cookieHeader || "").still_session;
-    if (!token) return null;
+  const socketTickets = new Map();
+  function sessionByHash(tokenHash) {
+    if (!tokenHash) return null;
     return db
       .prepare(
         `SELECT u.*, s.token_hash, s.expires_at FROM sessions s
       JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`,
       )
-      .get(digest(token), Date.now());
+      .get(tokenHash, Date.now());
+  }
+  function session(cookieHeader) {
+    const token = parse(cookieHeader || "").still_session;
+    return token ? sessionByHash(digest(token)) : null;
   }
   function requireAuth(req, res, next) {
     req.user = session(req.headers.cookie);
@@ -300,6 +306,15 @@ export function createApplication(options = {}) {
   app.get("/api/auth/me", requireAuth, (req, res) =>
     res.json({ user: publicUser(req.user) }),
   );
+  app.post('/api/auth/socket-ticket', requireAuth, (req, res) => {
+    const now = Date.now();
+    for (const [key, record] of socketTickets) if (record.expiresAt <= now) socketTickets.delete(key);
+    const own = [...socketTickets.entries()].filter(([, record]) => record.tokenHash === req.user.token_hash);
+    if (own.length >= 10) socketTickets.delete(own[0][0]);
+    const ticket = randomBytes(32).toString('hex');
+    socketTickets.set(digest(ticket), { tokenHash: req.user.token_hash, origin: req.headers.origin, expiresAt: now + 30_000 });
+    res.json({ ticket });
+  });
   app.post("/api/auth/logout", requireAuth, (req, res) => {
     db.prepare("DELETE FROM sessions WHERE token_hash=?").run(
       req.user.token_hash,
@@ -505,7 +520,16 @@ export function createApplication(options = {}) {
   });
 
   io.use((socket, next) => {
-    const user = session(socket.request.headers.cookie);
+    let user;
+    const ticket = socket.handshake.auth?.ticket;
+    if (typeof ticket === 'string') {
+      const key = digest(ticket);
+      const record = socketTickets.get(key);
+      socketTickets.delete(key);
+      if (record && record.expiresAt > Date.now() && record.origin === socket.request.headers.origin) user = sessionByHash(record.tokenHash);
+    } else {
+      user = session(socket.request.headers.cookie);
+    }
     if (!user) return next(new Error("Please sign in again."));
     socket.data.userId = user.id;
     socket.data.tokenHash = user.token_hash;
@@ -527,7 +551,7 @@ export function createApplication(options = {}) {
       socket.on(name, (payload, ack) => {
         if (typeof ack !== "function") return;
         try {
-          if (!session(socket.request.headers.cookie))
+          if (!sessionByHash(socket.data.tokenHash))
             throw new HttpError(401, "Please sign in again.");
           throttle(userId);
           ack({ ok: true, ...handler(payload) });
@@ -669,7 +693,7 @@ export function createApplication(options = {}) {
     res.status(404).json({ error: "Endpoint not found." }),
   );
   const dist = resolve("dist");
-  if (existsSync(dist)) {
+  if (process.env.SERVE_FRONTEND !== "false" && existsSync(dist)) {
     app.use(express.static(dist, { maxAge: production ? "1h" : 0 }));
     app.get("/{*path}", (req, res) =>
       res.sendFile(resolve(dist, "index.html")),
@@ -696,6 +720,7 @@ export function createApplication(options = {}) {
     });
   });
   function cleanup() {
+    for (const [key, record] of socketTickets) if (record.expiresAt <= Date.now()) socketTickets.delete(key);
     db.prepare("DELETE FROM sessions WHERE expires_at<?").run(Date.now());
     for (const [key, value] of socketRates)
       if (value.until < Date.now()) socketRates.delete(key);

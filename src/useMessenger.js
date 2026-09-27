@@ -155,7 +155,17 @@ export function useMessenger(user, activeId) {
 
   useEffect(() => {
     alive.current = true;
-    const connection = io({
+    let reconnectTimer;
+    const realtimeOrigin = import.meta.env.VITE_REALTIME_ORIGIN || undefined;
+    const connection = io(realtimeOrigin, {
+      auth: callback => {
+        api('/auth/socket-ticket', { method: 'POST' })
+          .then(({ ticket }) => { if (alive.current) callback({ ticket }); })
+          .catch(error => {
+            if (error.status === 401) report(error);
+            if (alive.current) callback({ ticket: '' });
+          });
+      },
       autoConnect: false,
       transports: ["websocket"],
       reconnection: true,
@@ -182,6 +192,7 @@ export function useMessenger(user, activeId) {
       }
     }
     connection.on("connect", () => {
+      clearTimeout(reconnectTimer);
       setConnected(true);
       setError("");
       if (active.current)
@@ -193,8 +204,12 @@ export function useMessenger(user, activeId) {
       if (reason === "io server disconnect")
         setError("Your session ended. Sign out and sign in again.");
     });
-    connection.on("connect_error", (error) => {
-      if (error.message === "Please sign in again.") report(error);
+    connection.on("connect_error", () => {
+      // Rejected/expired single-use tickets need a fresh handshake, not replay.
+      if (!connection.active && alive.current) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => connection.connect(), 8000);
+      }
     });
     connection.on("chat:changed", () => {
       void reconcile();
@@ -292,6 +307,7 @@ export function useMessenger(user, activeId) {
     window.addEventListener("focus", reconcile);
     return () => {
       alive.current = false;
+      clearTimeout(reconnectTimer);
       connection.removeAllListeners();
       connection.disconnect();
       clearInterval(timer);

@@ -1,0 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { build } from 'vite';
+import { origin } from './configure-hosting.js';
+const config = JSON.parse(readFileSync('vercel.json', 'utf8'));
+const rewrite = config.rewrites?.find(item => item.source === '/api/:path*');
+if (!rewrite) throw new Error('Hosting URLs are not configured. Run npm run configure:hosting with the actual Vercel and Render origins first.');
+const backend = origin(rewrite.destination.replace(/\/api\/:path\*$/, ''), 'Render URL');
+if (process.env.VITE_REALTIME_ORIGIN && origin(process.env.VITE_REALTIME_ORIGIN, 'VITE_REALTIME_ORIGIN') !== backend) throw new Error('The WebSocket origin must match the backend used by the API rewrite.');
+process.env.VITE_REALTIME_ORIGIN = backend;
+await build();
