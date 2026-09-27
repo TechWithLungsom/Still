@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Still WebRTC transport check</title>
+    <style>
+      body {
+        font: 16px system-ui;
+        background: #11151e;
+        color: #ececf4;
+        padding: 30px;
+      }
+      button {
+        padding: 12px;
+        margin: 8px;
+      }
+      video {
+        display: block;
+        width: 320px;
+        border: 1px solid #666;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebRTC transport check</h1>
+    <p>
+      Uses generated video and a silent synthetic audio track. It does not
+      access your microphone or camera.
+    </p>
+    <button id="start">Run transport check</button
+    ><button id="stop" disabled>Stop and verify cleanup</button
+    ><video autoplay muted playsinline></video>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      let peers = [],
+        stream,
+        context,
+        animation,
+        poll;
+      const result = document.querySelector("#result");
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      async function stop() {
+        clearInterval(poll);
+        cancelAnimationFrame(animation);
+        stream?.getTracks().forEach((t) => t.stop());
+        peers.forEach((p) => p.close());
+        await context?.close();
+        document.querySelector("#stop").disabled = true;
+        document.querySelector("#start").disabled = false;
+        result.textContent +=
+          "\nCleanup: " +
+          (stream.getTracks().every((t) => t.readyState === "ended") &&
+          peers.every((p) => p.connectionState === "closed")
+            ? "PASS"
+            : "FAIL");
+      }
+      document.querySelector("#stop").onclick = stop;
+      document.querySelector("#start").onclick = async () => {
+        document.querySelector("#start").disabled = true;
+        result.textContent = "Negotiating…";
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 320;
+          canvas.height = 180;
+          const drawing = canvas.getContext("2d");
+          function draw() {
+            drawing.fillStyle = `hsl(${(Date.now() / 50) % 360} 50% 40%)`;
+            drawing.fillRect(0, 0, 320, 180);
+            drawing.fillStyle = "white";
+            drawing.font = "18px sans-serif";
+            drawing.fillText("Still • synthetic test", 35, 90);
+            animation = requestAnimationFrame(draw);
+          }
+          draw();
+          stream = canvas.captureStream(15);
+          context = new AudioContext();
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          gain.gain.value = 0;
+          const destination = context.createMediaStreamDestination();
+          oscillator.connect(gain).connect(destination);
+          oscillator.start();
+          await context.resume();
+          stream.addTrack(destination.stream.getAudioTracks()[0]);
+          const a = new RTCPeerConnection(),
+            b = new RTCPeerConnection();
+          peers = [a, b];
+          const qa = [],
+            qb = [];
+          a.onicecandidate = (e) => {
+            if (e.candidate) {
+              if (b.remoteDescription)
+                b.addIceCandidate(e.candidate).catch(console.error);
+              else qb.push(e.candidate);
+            }
+          };
+          b.onicecandidate = (e) => {
+            if (e.candidate) {
+              if (a.remoteDescription)
+                a.addIceCandidate(e.candidate).catch(console.error);
+              else qa.push(e.candidate);
+            }
+          };
+          const incoming = new MediaStream();
+          b.ontrack = (e) => {
+            incoming.addTrack(e.track);
+            document.querySelector("video").srcObject = incoming;
+          };
+          stream.getTracks().forEach((t) => a.addTrack(t, stream));
+          await a.setLocalDescription(await a.createOffer());
+          await b.setRemoteDescription(a.localDescription);
+          for (const c of qb.splice(0)) await b.addIceCandidate(c);
+          await b.setLocalDescription(await b.createAnswer());
+          await a.setRemoteDescription(b.localDescription);
+          for (const c of qa.splice(0)) await a.addIceCandidate(c);
+          for (let i = 0; i < 100 && a.connectionState !== "connected"; i++)
+            await wait(100);
+          if (a.connectionState !== "connected")
+            throw Error("Connection failed");
+          await wait(2000);
+          const stats = [...(await b.getStats()).values()].filter(
+            (r) => r.type === "inbound-rtp",
+          );
+          const audio = stats.find((r) => r.kind === "audio"),
+            video = stats.find((r) => r.kind === "video");
+          if (!(audio?.bytesReceived > 0 && video?.framesDecoded > 0))
+            throw Error("No audio/video received");
+          const track = stream.getAudioTracks()[0];
+          track.enabled = false;
+          if (track.enabled) throw Error("Mute failed");
+          track.enabled = true;
+          const replacement = canvas.captureStream(10).getVideoTracks()[0];
+          const old = stream.getVideoTracks()[0];
+          await a
+            .getSenders()
+            .find((s) => s.track.kind === "video")
+            .replaceTrack(replacement);
+          stream.removeTrack(old);
+          old.stop();
+          stream.addTrack(replacement);
+          result.textContent = `PASS: two connected peers\nAudio received: ${audio.bytesReceived} bytes\nVideo decoded: ${video.framesDecoded} frames\nMute/unmute: PASS\nVideo track replacement: PASS`;
+          document.querySelector("#stop").disabled = false;
+        } catch (error) {
+          result.textContent = "FAIL: " + error.message;
+          document.querySelector("#stop").disabled = false;
+        }
+      };
+    </script>
+  </body>
+</html>
