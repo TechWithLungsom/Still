@@ -61,3 +61,10 @@ CREATE TABLE IF NOT EXISTS votes (
   choice TEXT NOT NULL CHECK(choice IN ('agree','discuss')),
   PRIMARY KEY(message_id,user_id)
 );
+
+CREATE TABLE IF NOT EXISTS statuses (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id), body TEXT NOT NULL,
+ media_id TEXT, mime TEXT, size INTEGER NOT NULL DEFAULT 0,
+ created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS statuses_expiry ON statuses(expires_at);

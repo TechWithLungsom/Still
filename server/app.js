@@ -101,7 +101,7 @@ export function createApplication(options = {}) {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'"],
           styleSrc: ["'self'"],
-          imgSrc: ["'self'", "data:"],
+          imgSrc: ["'self'", "data:", "blob:"],
           mediaSrc: ["'self'", "blob:"],
           connectSrc: ["'self'"],
           objectSrc: ["'none'"],
@@ -203,7 +203,8 @@ export function createApplication(options = {}) {
       senderId: row.sender_id,
       seq: row.seq,
       kind: row.kind,
-      body: row.body,
+      body: row.deleted_at ? "Message deleted" : row.body,
+      deletedAt: row.deleted_at,
       createdAt: row.created_at,
       attachment,
     };
@@ -432,7 +433,25 @@ export function createApplication(options = {}) {
         "SELECT * FROM messages WHERE chat_id=? AND seq>? ORDER BY seq LIMIT 200",
       )
       .all(req.params.chatId, after);
-    res.json({ messages: rows.map(messageView), hasMore: rows.length === 200 });
+    res.json({ messages: rows.map(messageView), hasMore: rows.length === 200, deleted: db.prepare("SELECT id FROM messages WHERE chat_id=? AND deleted_at IS NOT NULL").all(req.params.chatId).map(r => r.id) });
+  });
+  app.delete("/api/messages/:messageId", requireAuth, (req, res) => {
+    const message = db.prepare("SELECT * FROM messages WHERE id=?").get(req.params.messageId);
+    if (!message) throw new HttpError(404, "Message not found.");
+    member(req.user.id, message.chat_id);
+    if (message.sender_id !== req.user.id) throw new HttpError(403, "Only the sender can delete this message.");
+    transaction(db, () => {
+      db.prepare("DELETE FROM votes WHERE message_id=?").run(message.id);
+      db.prepare("UPDATE messages SET body='',kind='text',attachment_id=NULL,deleted_at=COALESCE(deleted_at,?) WHERE id=?").run(Date.now(), message.id);
+      if (message.attachment_id && !db.prepare("SELECT id FROM messages WHERE attachment_id=?").get(message.attachment_id)) {
+        db.prepare("DELETE FROM attachments WHERE id=?").run(message.attachment_id);
+      }
+    });
+    if (message.attachment_id && !db.prepare("SELECT id FROM attachments WHERE id=?").get(message.attachment_id)) {
+      try { unlinkSync(resolve(uploadDir, message.attachment_id)); } catch (error) { if (error.code !== 'ENOENT') console.error('Attachment cleanup failed:', error.message); }
+    }
+    notifyChat(message.chat_id, "message:deleted", { chatId: message.chat_id, messageId: message.id });
+    res.json({ ok: true });
   });
   app.get("/api/chats/:chatId/state", requireAuth, (req, res) => {
     member(req.user.id, req.params.chatId);
@@ -452,6 +471,42 @@ export function createApplication(options = {}) {
       filename: (req, file, done) => done(null, randomUUID()),
     }),
     limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 0 },
+  });
+  function canSeeStatus(userId, ownerId) {
+    return userId === ownerId || Boolean(db.prepare("SELECT 1 FROM members a JOIN members b ON a.chat_id=b.chat_id WHERE a.user_id=? AND b.user_id=? LIMIT 1").get(userId, ownerId));
+  }
+  app.get("/api/statuses", requireAuth, (req, res) => {
+    const rows = db.prepare(`SELECT s.*,u.name FROM statuses s JOIN users u ON u.id=s.owner_id
+      WHERE s.expires_at>? AND (s.owner_id=? OR EXISTS(SELECT 1 FROM members a JOIN members b ON a.chat_id=b.chat_id WHERE a.user_id=? AND b.user_id=s.owner_id)) ORDER BY s.created_at DESC LIMIT 200`).all(Date.now(), req.user.id, req.user.id);
+    res.json({ statuses: rows.map(({media_id, ...row}) => ({...row, mediaUrl: media_id ? `/api/statuses/${row.id}/media` : null})) });
+  });
+  app.post("/api/statuses", requireAuth, (req, res, next) => {
+    const count = db.prepare("SELECT COUNT(*) AS n FROM statuses WHERE owner_id=? AND expires_at>?").get(req.user.id, Date.now()).n;
+    if (count >= 10) throw new HttpError(429, "You can share up to 10 active statuses.");
+    next();
+  }, multer({ storage: multer.diskStorage({destination: uploadDir, filename: (req,file,done) => done(null, randomUUID())}), limits: {fileSize: 10*1024*1024, files:1, fields:1, fieldSize:4000} }).single("file"), (req,res) => {
+    try {
+      const body = z.string().trim().max(700).parse(req.body.body || "");
+      const allowed = ["image/jpeg","image/png","image/webp","video/mp4","video/webm"];
+      if (req.file && !allowed.includes(req.file.mimetype)) throw new HttpError(400,"Choose a JPEG, PNG, WebP, MP4 or WebM file.");
+      if (!body && !req.file) throw new HttpError(400,"Write a status or choose a photo/video.");
+      if (db.prepare("SELECT COUNT(*) AS n FROM statuses WHERE owner_id=? AND expires_at>?").get(req.user.id, Date.now()).n >= 10) throw new HttpError(429,"You can share up to 10 active statuses.");
+      const statusId = randomUUID(), now = Date.now();
+      db.prepare("INSERT INTO statuses VALUES(?,?,?,?,?,?,?,?)").run(statusId,req.user.id,body,req.file?.filename || null,req.file?.mimetype || null,req.file?.size || 0,now,now+86400000);
+      res.status(201).json({id:statusId});
+    } catch(error) { if(req.file) {try {unlinkSync(req.file.path);} catch {}} throw error; }
+  });
+  app.get("/api/statuses/:statusId/media", requireAuth, (req,res) => {
+    const status = db.prepare("SELECT * FROM statuses WHERE id=? AND expires_at>?").get(req.params.statusId,Date.now());
+    if (!status || !status.media_id || !canSeeStatus(req.user.id,status.owner_id)) throw new HttpError(404,"Status not found.");
+    res.type(status.mime).sendFile(resolve(uploadDir,status.media_id));
+  });
+  app.delete("/api/statuses/:statusId", requireAuth, (req,res) => {
+    const status = db.prepare("SELECT * FROM statuses WHERE id=?").get(req.params.statusId);
+    if (!status || status.owner_id !== req.user.id) throw new HttpError(404,"Status not found.");
+    db.prepare("DELETE FROM statuses WHERE id=?").run(status.id);
+    if(status.media_id) {try {unlinkSync(resolve(uploadDir,status.media_id));} catch {}}
+    res.json({ok:true});
   });
   app.post(
     "/api/chats/:chatId/files",
@@ -596,6 +651,7 @@ export function createApplication(options = {}) {
           .prepare("SELECT * FROM messages WHERE sender_id=? AND client_id=?")
           .get(userId, input.clientId);
         if (old) {
+          if (old.deleted_at && old.chat_id === input.chatId) return old;
           if (
             old.chat_id !== input.chatId ||
             old.body !== input.body ||
@@ -624,7 +680,7 @@ export function createApplication(options = {}) {
           )
           .get(input.chatId).next_seq;
         const messageId = randomUUID();
-        db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?)").run(
+        db.prepare("INSERT INTO messages(id,client_id,chat_id,sender_id,seq,kind,body,attachment_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)").run(
           messageId,
           input.clientId,
           input.chatId,
@@ -728,6 +784,10 @@ export function createApplication(options = {}) {
     });
   });
   function cleanup() {
+    for (const status of db.prepare("SELECT * FROM statuses WHERE expires_at<=?").all(Date.now())) {
+      if(status.media_id) {try {unlinkSync(resolve(uploadDir,status.media_id));} catch {}}
+      db.prepare("DELETE FROM statuses WHERE id=?").run(status.id);
+    }
     for (const [key, record] of socketTickets) if (record.expiresAt <= Date.now()) socketTickets.delete(key);
     db.prepare("DELETE FROM sessions WHERE expires_at<?").run(Date.now());
     for (const [key, value] of socketRates)
@@ -750,7 +810,7 @@ export function createApplication(options = {}) {
       const path = resolve(uploadDir, name);
       if (
         statSync(path).mtimeMs < Date.now() - 24 * 60 * 60_000 &&
-        !db.prepare("SELECT id FROM attachments WHERE id=?").get(name)
+        !db.prepare("SELECT id FROM attachments WHERE id=?").get(name) && !db.prepare("SELECT id FROM statuses WHERE media_id=?").get(name)
       )
         unlinkSync(path);
     }

@@ -137,3 +137,9 @@ Choose **Voice note** in a chat, allow microphone access, record up to five minu
 Signup requires matching password and confirmation fields; confirmation is checked locally and is not sent to the server.
 
 For a synthetic-audio browser check, run the development frontend and open `/test/voice-recorder.html`. This test substitutes generated audio for microphone input and checks the recorded file can be decoded.
+
+## Password visibility, deletion and statuses
+
+Password and confirmation fields include independent show/hide controls. Senders can delete their own sent texts, decisions, files and voice notes for everyone. A tombstone preserves ordering; deletion synchronizes after reconnect and clears decision votes. Unreferenced attachments lose API access and are removed from storage. Previously downloaded or captured copies cannot be recalled.
+
+The Status tab supports text (700 characters) and photo/video updates (10 MB per file, up to 10 active updates). Statuses are visible to the author and people who currently share a direct or group chat with them. Updates expire after 24 hours; expired media is denied immediately and cleaned periodically. Authors can delete statuses early. The feed refreshes every 15 seconds. Supported uploads: JPEG, PNG, WebP, MP4 and WebM. This first status version does not include viewer lists or custom audience selection.

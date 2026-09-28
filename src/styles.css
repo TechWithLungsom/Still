@@ -1758,3 +1758,21 @@ small {
 .voice-recorder button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid #49504b; border-radius: 12px; color: inherit; background: transparent; cursor: pointer; }
 .voice-recorder button:disabled { opacity: .45; cursor: not-allowed; }
 .voice-recorder audio, .voice-player { display: block; width: min(280px, 100%); max-width: 100%; height: 40px; margin: 6px 0; }
+
+.password-input { position: relative; display: block; }
+.password-input input { width: 100%; padding-right: 48px; }
+.password-input button { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; color: inherit; border: 0; padding: 8px; cursor: pointer; }
+.delete-message { display: flex; gap: 5px; align-items: center; margin: 6px 0; border: 0; background: transparent; color: inherit; opacity: .7; font-size: 11px; cursor: pointer; }
+.status-feed { padding: clamp(20px,4vw,48px); overflow-y: auto; height: 100%; }
+.status-feed h1 { font-size: 32px; margin: 12px 0; }
+.status-feed header p, .status-card small { opacity: .65; }
+.status-compose { display: grid; gap: 14px; padding: 20px; border: 1px solid #343945; border-radius: 18px; margin: 24px 0; }
+.status-compose label { display: grid; gap: 10px; font-size: 13px; }
+.status-compose textarea { min-height: 90px; resize: vertical; background: transparent; color: inherit; border: 1px solid #454b56; border-radius: 10px; padding: 12px; }
+.status-compose img,.status-compose video { max-width: 100%; max-height: 240px; object-fit: contain; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 18px; }
+.status-card { border: 1px solid #343945; border-radius: 18px; overflow: hidden; padding: 18px; }
+.status-card header { display: grid; gap: 6px; margin-bottom: 14px; }
+.status-card img,.status-card video { width: 100%; max-height: 380px; object-fit: contain; border-radius: 12px; }
+.status-card p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.status-card button,.status-compose > button:not(.primary) { padding: 8px 12px; border: 1px solid #454b56; color: inherit; background: transparent; border-radius: 8px; cursor: pointer; }

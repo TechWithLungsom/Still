@@ -7,6 +7,7 @@ export function openDatabase(filename) {
     mkdirSync(dirname(resolve(filename)), { recursive: true });
   const db = new DatabaseSync(filename);
   db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
+  if (!db.prepare("PRAGMA table_info(messages)").all().some(c => c.name === "deleted_at")) db.exec("ALTER TABLE messages ADD COLUMN deleted_at INTEGER");
   return db;
 }
 

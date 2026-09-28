@@ -73,7 +73,8 @@ export function useMessenger(user, activeId) {
           while (more && alive.current) {
             const after = list.at(-1)?.seq || 0;
             const data = await api(`/chats/${chatId}/messages?after=${after}`);
-            list = [...list, ...data.messages];
+            const deleted = new Set(data.deleted || []);
+            list = [...list, ...data.messages].map(m => deleted.has(m.id) ? {...m, body:"Message deleted", kind:"text", attachment:null, deletedAt: m.deletedAt || Date.now()} : m);
             more = data.hasMore;
           }
           if (!alive.current) return;
@@ -214,6 +215,7 @@ export function useMessenger(user, activeId) {
     connection.on("chat:changed", () => {
       void reconcile();
     });
+    connection.on("message:deleted", ({ chatId }) => { syncChat(chatId).then(refreshChats).catch(report); });
     connection.on("message:new", ({ message }) => {
       syncChat(message.chatId).then(refreshChats).catch(report);
     });
@@ -414,6 +416,11 @@ export function useMessenger(user, activeId) {
         queueWrites.current,
         ...[...locks.current.values()].map((lock) => lock.promise),
       ]);
+    },
+    deleteMessage: async (message) => {
+      await api(`/messages/${message.id}`, {method:"DELETE"});
+      await syncChat(message.chatId);
+      await refreshChats();
     },
     vote: (messageId, choice) =>
       emit(socket.current, "decision:vote", { messageId, choice }),

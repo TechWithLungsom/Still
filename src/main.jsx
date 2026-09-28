@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  Eye,
+  EyeOff,
+  Trash2,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
@@ -31,6 +34,7 @@ import { clearLocalUser } from "./storage";
 import { useMessenger } from "./useMessenger";
 import "./styles.css";
 import { useCalls } from "./useCalls";
+import { StatusFeed } from "./StatusFeed";
 import { VoiceRecorder } from "./VoiceRecorder";
 import { CallPanel } from "./CallPanel";
 
@@ -99,6 +103,10 @@ function IconButton({ label, children, ...props }) {
   );
 }
 
+function PasswordInput(props) {
+  const [visible,setVisible]=useState(false);
+  return <span className="password-input"><input {...props} aria-label={props.name === "confirmPassword" ? "Confirm password" : "Password"} type={visible ? "text" : "password"} /><button type="button" aria-label={`${visible ? "Hide" : "Show"} ${props.name === "confirmPassword" ? "confirm password" : "password"}`} aria-pressed={visible} onClick={()=>setVisible(!visible)}>{visible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span>;
+}
 function Auth({ onLogin }) {
   const [register, setRegister] = useState(true);
   const [error, setError] = useState("");
@@ -185,7 +193,7 @@ function Auth({ onLogin }) {
           </label>
           <label>
             Password
-            <input
+            <PasswordInput
               name="password"
               type="password"
               autoComplete={register ? "new-password" : "current-password"}
@@ -195,7 +203,7 @@ function Auth({ onLogin }) {
               placeholder="At least 12 characters"
             />
           </label>
-          {register && <label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required placeholder="Re-enter your password" /></label>}
+          {register && <label>Confirm password<PasswordInput name="confirmPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required placeholder="Re-enter your password" /></label>}
           {error && (
             <p className="form-error" role="alert">
               {error}
@@ -404,6 +412,12 @@ function NewChat({ user, onClose, onCreated }) {
 
 function Message({ message, user, chat, state, messenger }) {
   const own = message.senderId === user.id;
+  const [deleting,setDeleting]=useState(false);
+  async function remove() {
+    if (!window.confirm("Delete this message for everyone? Recipients may have already saved a copy.")) return;
+    setDeleting(true);
+    try { await messenger.deleteMessage(message); } catch(e) { messenger.setError(e.message); } finally { setDeleting(false); }
+  }
   const sender = chat.members.find((m) => m.id === message.senderId);
   const recipients = (state?.members || chat.members).filter(
     (m) => m.id !== user.id,
@@ -447,6 +461,7 @@ function Message({ message, user, chat, state, messenger }) {
             </div>
           )}
           {message.body && <p>{message.body}</p>}
+          {own && message.id && !message.deletedAt && <button className="delete-message" aria-label="Delete message for everyone" disabled={deleting || !messenger.connected} onClick={remove}><Trash2 size={14}/>{deleting ? "Deleting…" : "Delete"}</button>}
           {message.attachment?.mime?.startsWith("audio/") && <audio className="voice-player" controls preload="none" src={`/api/files/${message.attachment.id}?play=1`} aria-label="Voice note" />}
           {message.attachment && (
             <a
@@ -905,7 +920,7 @@ function Messenger({ user, onLogout }) {
     }
   }
   return (
-    <div className={`app-shell ${chat ? "has-chat" : ""}`}>
+    <div className={`app-shell ${chat || section === "status" ? "has-chat" : ""}`}>
       <nav className="rail" aria-label="Main navigation">
         <a className="rail-logo" href="/" aria-label="Still home">
           <span className="brand-mark">
@@ -936,6 +951,7 @@ function Messenger({ user, onLogout }) {
         >
           <Users size={22} />
         </button>
+        <button className={section === "status" ? "active" : ""} aria-label="Status" title="Status" onClick={()=>{setSection("status");setActiveId(null);}}><Circle size={22}/></button>
         <div className="rail-bottom">
           <span
             className={`connection-dot ${messenger.connected ? "online" : ""}`}
@@ -999,7 +1015,8 @@ function Messenger({ user, onLogout }) {
                 key={c.id}
                 className={`chat-item ${c.id === activeId ? "selected" : ""}`}
                 onClick={() => {
-                  setActiveId(c.id);
+                  setSection("inbox");
+                    setActiveId(c.id);
                   setShowDetails(false);
                 }}
               >
@@ -1088,7 +1105,7 @@ function Messenger({ user, onLogout }) {
             Reconnecting. Your queued messages stay on this device.
           </div>
         )}
-        {chat ? (
+        {section === "status" ? <StatusFeed user={user} onBack={()=>setSection("inbox")} /> : chat ? (
           <Conversation
             key={chat.id}
             user={user}
@@ -1209,6 +1226,7 @@ function Messenger({ user, onLogout }) {
           onClose={() => setNewChat(false)}
           onCreated={async (id) => {
             await messenger.refreshChats();
+            setSection("inbox");
             setActiveId(id);
             setNewChat(false);
           }}
